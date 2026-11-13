@@ -42,11 +42,21 @@ docker compose exec -T backend python -m scripts.seed_demo
 
 独立4样本oracle：A组目标60、B组40，其余两维50/50，权重应为30/30/20/20；加权时长23、原始25、ESS10000/2600、设计效应1.04。cap_ratio=1不能满足目标，必须显示未收敛。
 
+### 整数化交付
+
+实现位置 `backend/src/services/integerization_service.py`。接收机构按整数人数交付，逐条四舍五入会破坏边际，因此整数化是一次全局约束求解，而不是逐列取整：
+
+1. 硬约束：每个维度每个类别的整数权重合计精确等于整数目标，全部整数权重合计精确等于目标总人数（总人数约束由各维类别合计自然保证）。
+2. 取值范围：放松参数 k=0 时每条整数权重只能取原小数权重的 floor 或 ceil；页面可把范围放宽到 [floor−k, ceil+k]（k∈0..20）重新求解，边际硬约束不放松。
+3. 求解：纯标准库的边界一致性传播 + 回溯（二值域走增量计数快速路径，放松后的多值域走整数域分裂），确定性、不引入外部求解器；5 秒或节点预算用尽即超时，拒绝交付。
+4. 三类无解原因互斥区分——`target_non_integer`（目标本身非整数，先把边际登记为整数）、`range_insufficient`（当前 k 内无解但宽范围可解，调大 k 即可，附紧张类别）、`structural_infeasible`（放宽到最大范围仍无解，属样本交叉结构与整数边际不兼容，调 k 无效）；超时 `timeout` 单独以 504 提示，与无解分开，不产出半成品。
+5. 交付门控与留痕：仅已批准运行可整数化；admin/analyst 可发起，viewer 只读与下载。每次成功或失败按 (运行, k) 覆盖归档到 `integer_deliveries` 并写审计；只有 `solved` 归档能导出整数 CSV。原小数权重导出 (`/runs/{id}/export`) 口径不变、始终可用，整数导出为 `/runs/{id}/export-integer?relax=k`。页面展示逐类对账（整数合计 vs 整数目标、残差）与逐条权重改动（原值/floor/ceil/整数值/是否限于上下整数）。
+
 ## 页面与结构
 
-六个研究页面：总览、样本底册、目标边际、校准配置/记录、诊断结果、复核交付（含有权角色的审计）。BatchSelect、RunTable、CalibrationSummary、MarginTable跨页复用；PageHeading/ErrorNotice/StatusBadge为公共组件；useTask/usePolling与格式工具共享。初始3批共1280条样本、27个目标格、一个实际计算的初始运行及获批记录，种子73/74/75。
+六个研究页面：总览、样本底册、目标边际、校准配置/记录、诊断结果、复核交付（含有权角色的审计）。整数化交付面板 `IntegerDeliveryPanel` 内嵌于诊断结果页（获批后出现），含放松范围求解、三类无解与超时提示、逐类对账和权重改动。BatchSelect、RunTable、CalibrationSummary、MarginTable跨页复用；PageHeading/ErrorNotice/StatusBadge为公共组件；useTask/usePolling与格式工具共享。初始3批共1280条样本、27个目标格、一个实际计算的初始运行及获批记录，种子73/74/75。
 
-前端：`src/{api,stores,types,components/common,hooks,pages,router,utils,constants}`；后端：`src/{routes,controllers,services,models,schemas,middlewares,utils,constants,config}`；种子在`backend/scripts/seed_demo.py`，结构约束见`backend/migrations/001_schema.md`。测试、截图和TESTING只在批次`test-artifacts/gb-0015/`。
+前端：`src/{api,stores,types,components/common,hooks,pages,router,utils,constants}`；后端：`src/{routes,controllers,services,models,schemas,middlewares,utils,constants,config}`；种子在`backend/scripts/seed_demo.py`，结构约束见`backend/migrations/001_schema.md`。整数化相关：服务 `services/integerization_service.py`（求解）与 `services/integer_delivery_service.py`（门控/归档/失败映射）、模型 `models/integer_delivery.py`（新表 `integer_deliveries`，由 metadata 新建，不改既有表）、路由 `routes/integer_deliveries.py`、控制器与 `schemas/integerization.py`。测试、截图和TESTING只在批次`test-artifacts/gb-0015/`。
 
 共享枚举Role/RunStatus/Dimension后端在`backend/src/constants/enums.py`，前端在`frontend/src/constants/enums.ts`；角色认证在middlewares/auth、auth store；状态用于run_service/worker/StatusBadge；Dimension用于target schema、raking维度与目标页。数据库字段采用相同枚举字符串。
 

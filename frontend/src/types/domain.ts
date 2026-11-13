@@ -7,3 +7,8 @@ export interface RakingResult{converged:boolean;iterations:number;max_residual:n
 export interface Run{id:number;name:string;batch_id:number;tolerance:number;max_iterations:number;cap_ratio:number;status:string;result:RakingResult|null;error:string|null;created_at:string;batch?:Batch}
 export interface Review{id:number;run_id:number;decision:string;note:string;reviewer_id:number;created_at:string}
 export interface Audit{id:number;actor:string;action:string;target:string;created_at:string}
+export interface IntegerReconciliation{dimension:string;category:string;sample_count:number;target:number;decimal_weighted:number;integer_weighted:number;integer_residual:number;matches_target:boolean}
+export interface WeightChange{code:string;decimal_weight:number;floor:number;ceil:number;integer_weight:number;delta:number;within_floor_ceil:boolean}
+export interface IntegerDetail{relax:number;total_target:number;decimal_total:number;integer_total:number;total_matches:boolean;all_categories_match:boolean;moved_count:number;sample_count:number;within_natural_count:number;reconciliations:IntegerReconciliation[];weight_changes:WeightChange[];integer_weights:number[]}
+export interface IntegerFailure{reason:'target_non_integer'|'range_insufficient'|'structural_infeasible'|'timeout';message:string;non_integer?:{dimension:string;category:string;population:number}[];blocking?:{dimension:string;category:string;target:number;min_total:number;max_total:number;headroom?:number}[];seconds?:number}
+export interface IntegerDelivery{id:number;run_id:number;relax:number;status:'solved'|'failed';failure_reason:string|null;detail:IntegerDetail|IntegerFailure|Record<string,unknown>;created_by:number;created_at:string}
